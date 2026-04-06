@@ -4,6 +4,7 @@ import time
 import os
 import sys
 import re
+import json
 
 # Attempt to import deep_translator for the new translation feature
 try:
@@ -151,9 +152,26 @@ def main():
             os.makedirs(media_folder, exist_ok=True)
             print(f"[*] Media will be saved to the '{media_folder}' folder.")
 
+        save_json_choice = input("Would you like to save messages to a JSON file? (y/n): ").strip().lower()
+        save_json = save_json_choice == 'y'
+        json_filename = f"messages_{channel_name}.json"
+        saved_messages = []
+
         print(f"\nConnecting to @{channel_name}...")
         
         seen_post_ids = set()
+        
+        # Load existing messages if the file already exists
+        if save_json and os.path.exists(json_filename):
+            try:
+                with open(json_filename, 'r', encoding='utf-8') as f:
+                    saved_messages = json.load(f)
+                    for m in saved_messages:
+                        seen_post_ids.add(m['id'])
+                print(f"[*] Loaded {len(saved_messages)} previous messages from {json_filename}")
+            except json.JSONDecodeError:
+                print(f"[!] Warning: {json_filename} is corrupted or empty. Starting fresh.")
+
         refresh_rate = 15 # Seconds to wait between live checks
         
         # Initial Fetch
