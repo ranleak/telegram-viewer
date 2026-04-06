@@ -188,11 +188,14 @@ def main():
                         print("-" * 40)
                         
                         display_text = msg['text']
+                        msg['translated_text'] = None
+                        msg['local_media'] = []
                         
                         # Apply translation if requested and the text is not just a media placeholder
                         if target_lang and display_text and display_text != "[Media / Non-text Content]":
                             try:
                                 translated = GoogleTranslator(source='auto', target=target_lang).translate(display_text)
+                                msg['translated_text'] = translated
                                 display_text = f"{translated}\n\n[Original]:\n{display_text}"
                             except Exception as e:
                                 display_text = f"[Translation Error: {e}]\n{display_text}"
@@ -209,9 +212,19 @@ def main():
                                     ext = ".mp4" if ".mp4" in url.lower() else ".jpg"
                                     filename = f"{sanitized_id}_{idx}{ext}"
                                     print(f"    -> Downloading {filename}...")
-                                    download_media(url, media_folder, filename)
+                                    
+                                    # Save local paths to the dictionary for the PDF formatter
+                                    if download_media(url, media_folder, filename):
+                                        msg['local_media'].append(os.path.join(media_folder, filename))
 
                         print("-" * 40 + "\n")
+                        
+                    # Save to JSON file if option was selected
+                    if save_json and new_messages:
+                        saved_messages.extend(new_messages)
+                        with open(json_filename, 'w', encoding='utf-8') as f:
+                            json.dump(saved_messages, f, indent=4, ensure_ascii=False)
+                        print(f"[*] Saved {len(new_messages)} new message(s) to {json_filename}.\n")
                 
                 # Wait before polling again
                 time.sleep(refresh_rate)
