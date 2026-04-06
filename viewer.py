@@ -8,6 +8,13 @@ import json
 import base64
 import mimetypes
 
+# Attempt to import cv2 (OpenCV) for extracting video frames
+try:
+    import cv2
+    OPENCV_AVAILABLE = True
+except ImportError:
+    OPENCV_AVAILABLE = False
+
 # Attempt to import deep_translator for the new translation feature
 try:
     from deep_translator import GoogleTranslator
@@ -248,12 +255,36 @@ def main():
                                         # Embed as Base64 if requested
                                         if embed_base64:
                                             try:
-                                                with open(filepath, "rb") as media_file:
+                                                file_to_encode = filepath
+                                                mime_to_use = None
+                                                
+                                                # If it's a video, extract the first frame
+                                                if ext == ".mp4":
+                                                    if OPENCV_AVAILABLE:
+                                                        frame_filename = f"{sanitized_id}_{idx}_frame.jpg"
+                                                        frame_filepath = os.path.join(media_folder, frame_filename)
+                                                        
+                                                        print(f"    -> Extracting first frame for base64 embed...")
+                                                        vidcap = cv2.VideoCapture(filepath)
+                                                        success, image = vidcap.read()
+                                                        if success:
+                                                            cv2.imwrite(frame_filepath, image)
+                                                            file_to_encode = frame_filepath
+                                                            mime_to_use = "image/jpeg"
+                                                        vidcap.release()
+                                                    else:
+                                                        print("    [!] OpenCV not installed. Skipping video frame extraction (embedding full video).")
+                                                        print("        (Install via: pip install opencv-python)")
+
+                                                with open(file_to_encode, "rb") as media_file:
                                                     encoded_string = base64.b64encode(media_file.read()).decode('utf-8')
-                                                    mime_type, _ = mimetypes.guess_type(filepath)
-                                                    if not mime_type:
-                                                        mime_type = "video/mp4" if ext == ".mp4" else "image/jpeg"
-                                                    msg['base64_media'].append({"mime_type": mime_type, "data": encoded_string})
+                                                    
+                                                    if not mime_to_use:
+                                                        mime_to_use, _ = mimetypes.guess_type(file_to_encode)
+                                                    if not mime_to_use:
+                                                        mime_to_use = "video/mp4" if file_to_encode.endswith(".mp4") else "image/jpeg"
+                                                        
+                                                    msg['base64_media'].append({"mime_type": mime_to_use, "data": encoded_string})
                                             except Exception as e:
                                                 print(f"    [!] Failed to encode base64: {e}")
 

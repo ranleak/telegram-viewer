@@ -1,0 +1,1 @@
+Update stuff for better media embedding. Script now helps to save first frame of videos for the HTML, so we need OpenCV (it doesn't have to be installed, if not the script just skips this step and displays an error message).
