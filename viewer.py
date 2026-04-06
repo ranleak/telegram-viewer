@@ -5,6 +5,8 @@ import os
 import sys
 import re
 import json
+import base64
+import mimetypes
 
 # Attempt to import deep_translator for the new translation feature
 try:
@@ -154,6 +156,12 @@ def main():
 
         save_json_choice = input("Would you like to save messages to a JSON file? (y/n): ").strip().lower()
         save_json = save_json_choice == 'y'
+        
+        embed_base64 = False
+        if save_json and save_media:
+            embed_base64_choice = input("Would you like to embed media as Base64 into the JSON (for standalone HTML)? (y/n): ").strip().lower()
+            embed_base64 = embed_base64_choice == 'y'
+
         json_filename = f"messages_{channel_name}.json"
         saved_messages = []
 
@@ -208,6 +216,7 @@ def main():
                         display_text = msg['text']
                         msg['translated_text'] = None
                         msg['local_media'] = []
+                        msg['base64_media'] = []
                         
                         # Apply translation if requested and the text is not just a media placeholder
                         if target_lang and display_text and display_text != "[Media / Non-text Content]":
@@ -233,7 +242,20 @@ def main():
                                     
                                     # Save local paths to the dictionary for the PDF formatter
                                     if download_media(url, media_folder, filename):
-                                        msg['local_media'].append(os.path.join(media_folder, filename))
+                                        filepath = os.path.join(media_folder, filename)
+                                        msg['local_media'].append(filepath)
+                                        
+                                        # Embed as Base64 if requested
+                                        if embed_base64:
+                                            try:
+                                                with open(filepath, "rb") as media_file:
+                                                    encoded_string = base64.b64encode(media_file.read()).decode('utf-8')
+                                                    mime_type, _ = mimetypes.guess_type(filepath)
+                                                    if not mime_type:
+                                                        mime_type = "video/mp4" if ext == ".mp4" else "image/jpeg"
+                                                    msg['base64_media'].append({"mime_type": mime_type, "data": encoded_string})
+                                            except Exception as e:
+                                                print(f"    [!] Failed to encode base64: {e}")
 
                         print("-" * 40 + "\n")
                         

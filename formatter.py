@@ -116,6 +116,7 @@ def generate_chat_html(json_file):
         timestamp = escape_text(msg.get('timestamp', 'Unknown'))
         views = escape_text(msg.get('views', 'N/A'))
         local_media = msg.get('local_media', [])
+        base64_media = msg.get('base64_media', [])
 
         html_content += '        <div class="message">\n'
         html_content += '            <div class="bubble">\n'
@@ -126,7 +127,19 @@ def generate_chat_html(json_file):
         else:
             html_content += f'                <div class="original">{original_text}</div>\n'
 
-        if local_media:
+        if base64_media:
+            html_content += '                <div class="media-grid">\n'
+            for b64 in base64_media:
+                mime_type = b64.get('mime_type', 'image/jpeg')
+                data = b64.get('data', '')
+                html_content += '                    <div class="media-item">\n'
+                if 'video' in mime_type:
+                    html_content += f'                        <video controls src="data:{mime_type};base64,{data}"></video>\n'
+                else:
+                    html_content += f'                        <img src="data:{mime_type};base64,{data}" alt="media attached">\n'
+                html_content += '                    </div>\n'
+            html_content += '                </div>\n'
+        elif local_media:
             html_content += '                <div class="media-grid">\n'
             for media_path in local_media:
                 # Need to replace backslashes for web paths if running on Windows
@@ -153,7 +166,7 @@ def generate_chat_html(json_file):
         f.write(html_content)
 
     print(f"\n[+] Successfully generated {output_html}")
-    print(f"    Open '{output_html}' in your web browser, then press Ctrl+P (or Cmd+P) to Save as PDF.")
+    print(f"    Open '{output_html}' in your web browser, then press Ctrl+P (or Cmd+P) to Save as PDF if you want.")
 
 if __name__ == "__main__":
     print("="*50)
