@@ -4,6 +4,31 @@ import time
 import os
 import sys
 import re
+import json
+import base64
+import mimetypes
+
+# Attempt to import custom py7zip for bundling
+try:
+    import py7zip
+    PY7ZIP_AVAILABLE = True
+except ImportError:
+    PY7ZIP_AVAILABLE = False
+
+# Attempt to import cv2 (OpenCV) for extracting video frames
+try:
+    import cv2
+    OPENCV_AVAILABLE = True
+except ImportError:
+    OPENCV_AVAILABLE = False
+
+# Attempt to import deep_translator for the new translation feature
+try:
+    from deep_translator import GoogleTranslator
+    TRANSLATION_AVAILABLE = True
+except ImportError:
+    TRANSLATION_AVAILABLE = False
+
 
 def clear_screen():
     """Clears the console screen for better readability."""
@@ -123,17 +148,60 @@ def main():
         if "t.me/" in channel_name:
             channel_name = channel_name.split('/')[-1]
 
+        # Check for translation preference
+        target_lang = None
+        if TRANSLATION_AVAILABLE:
+            trans_choice = input("Translate messages? (Enter 'en' for English, 'es' for Spanish, or leave blank to skip): ").strip().lower()
+            if trans_choice in ['en', 'english']:
+                target_lang = 'en'
+            elif trans_choice in ['es', 'spanish']:
+                target_lang = 'es'
+        else:
+            print("[!] 'deep_translator' library not found. Skipping translation feature.")
+            print("    (To enable translation, install it via: pip install deep_translator)\n")
+
         save_media_choice = input("Would you like to save images and videos to a folder? (y/n): ").strip().lower()
         save_media = save_media_choice == 'y'
         
+        bundle_media = False
+        if save_media:
+            if PY7ZIP_AVAILABLE:
+                bundle_choice = input("Would you like to automatically bundle the media folder into a .7z archive when stopping the feed? (y/n): ").strip().lower()
+                bundle_media = bundle_choice == 'y'
+            else:
+                print("[!] Custom 'py7zip' module not found. Skipping .7z bundling option.")
+
         media_folder = f"media_{channel_name}"
         if save_media:
             os.makedirs(media_folder, exist_ok=True)
             print(f"[*] Media will be saved to the '{media_folder}' folder.")
 
+        save_json_choice = input("Would you like to save messages to a JSON file? (y/n): ").strip().lower()
+        save_json = save_json_choice == 'y'
+        
+        embed_base64 = False
+        if save_json and save_media:
+            embed_base64_choice = input("Would you like to embed media as Base64 into the JSON (for standalone HTML)? (y/n): ").strip().lower()
+            embed_base64 = embed_base64_choice == 'y'
+
+        json_filename = f"messages_{channel_name}.json"
+        saved_messages = []
+
         print(f"\nConnecting to @{channel_name}...")
         
         seen_post_ids = set()
+        
+        # Load existing messages if the file already exists
+        if save_json and os.path.exists(json_filename):
+            try:
+                with open(json_filename, 'r', encoding='utf-8') as f:
+                    saved_messages = json.load(f)
+                    for m in saved_messages:
+                        seen_post_ids.add(m['id'])
+                print(f"[*] Loaded {len(saved_messages)} previous messages from {json_filename}")
+            except json.JSONDecodeError:
+                print(f"[!] Warning: {json_filename} is corrupted or empty. Starting fresh.")
+
         refresh_rate = 15 # Seconds to wait between live checks
         
         # Initial Fetch
@@ -146,6 +214,8 @@ def main():
             
         clear_screen()
         print(f"--- LIVE FEED: @{channel_name} ---")
+        if target_lang:
+            print(f"Translation enabled: Target Language -> {target_lang.upper()}")
         print(f"Polling for new messages every {refresh_rate} seconds. Press Ctrl+C to change channel.\n")
         
         try:
@@ -164,10 +234,25 @@ def main():
                     for msg in new_messages:
                         print(f"[{msg['timestamp']}] 👁 {msg['views']} views")
                         print("-" * 40)
-                        print(f"{msg['text']}")
+                        
+                        display_text = msg['text']
+                        msg['translated_text'] = None
+                        msg['local_media'] = []
+                        msg['base64_media'] = []
+                        
+                        # Apply translation if requested and the text is not just a media placeholder
+                        if target_lang and display_text and display_text != "[Media / Non-text Content]":
+                            try:
+                                translated = GoogleTranslator(source='auto', target=target_lang).translate(display_text)
+                                msg['translated_text'] = translated
+                                display_text = f"{translated}\n\n[Original]:\n{display_text}"
+                            except Exception as e:
+                                display_text = f"[Translation Error: {e}]\n{display_text}"
+                                
+                        print(f"{display_text}")
                         
                         if msg['media_urls']:
-                            print(f"[!] Contains {len(msg['media_urls'])} media file(s).")
+                            print(f"\n[!] Contains {len(msg['media_urls'])} media file(s).")
                             if save_media:
                                 # Sanitize the post ID so it's safe to use as a file name
                                 sanitized_id = msg['id'].replace('/', '_')
@@ -176,9 +261,56 @@ def main():
                                     ext = ".mp4" if ".mp4" in url.lower() else ".jpg"
                                     filename = f"{sanitized_id}_{idx}{ext}"
                                     print(f"    -> Downloading {filename}...")
-                                    download_media(url, media_folder, filename)
+                                    
+                                    # Save local paths to the dictionary for the PDF formatter
+                                    if download_media(url, media_folder, filename):
+                                        filepath = os.path.join(media_folder, filename)
+                                        msg['local_media'].append(filepath)
+                                        
+                                        # Embed as Base64 if requested
+                                        if embed_base64:
+                                            try:
+                                                file_to_encode = filepath
+                                                mime_to_use = None
+                                                
+                                                # If it's a video, extract the first frame
+                                                if ext == ".mp4":
+                                                    if OPENCV_AVAILABLE:
+                                                        frame_filename = f"{sanitized_id}_{idx}_frame.jpg"
+                                                        frame_filepath = os.path.join(media_folder, frame_filename)
+                                                        
+                                                        print(f"    -> Extracting first frame for base64 embed...")
+                                                        vidcap = cv2.VideoCapture(filepath)
+                                                        success, image = vidcap.read()
+                                                        if success:
+                                                            cv2.imwrite(frame_filepath, image)
+                                                            file_to_encode = frame_filepath
+                                                            mime_to_use = "image/jpeg"
+                                                        vidcap.release()
+                                                    else:
+                                                        print("    [!] OpenCV not installed. Skipping video frame extraction (embedding full video).")
+                                                        print("        (Install via: pip install opencv-python)")
+
+                                                with open(file_to_encode, "rb") as media_file:
+                                                    encoded_string = base64.b64encode(media_file.read()).decode('utf-8')
+                                                    
+                                                    if not mime_to_use:
+                                                        mime_to_use, _ = mimetypes.guess_type(file_to_encode)
+                                                    if not mime_to_use:
+                                                        mime_to_use = "video/mp4" if file_to_encode.endswith(".mp4") else "image/jpeg"
+                                                        
+                                                    msg['base64_media'].append({"mime_type": mime_to_use, "data": encoded_string})
+                                            except Exception as e:
+                                                print(f"    [!] Failed to encode base64: {e}")
 
                         print("-" * 40 + "\n")
+                        
+                    # Save to JSON file if option was selected
+                    if save_json and new_messages:
+                        saved_messages.extend(new_messages)
+                        with open(json_filename, 'w', encoding='utf-8') as f:
+                            json.dump(saved_messages, f, indent=4, ensure_ascii=False)
+                        print(f"[*] Saved {len(new_messages)} new message(s) to {json_filename}.\n")
                 
                 # Wait before polling again
                 time.sleep(refresh_rate)
@@ -187,6 +319,18 @@ def main():
             # Handle Ctrl+C gracefully to return to the main menu
             clear_screen()
             print("\nStopped live feed.")
+            
+            # Bundle media if requested and there are files to zip
+            if bundle_media and os.path.exists(media_folder) and os.listdir(media_folder):
+                archive_filename = f"{media_folder}.7z"
+                print(f"[*] Bundling media files into '{archive_filename}' using py7zip...")
+                try:
+                    # Passing the folder as a list, matching the py7zip usage example
+                    py7zip.compress(archive_filename, [f"{media_folder}/"])
+                    print(f"[+] Successfully created {archive_filename}")
+                except Exception as e:
+                    print(f"[!] Failed to bundle media: {e}")
+                    
             print("="*50)
             continue
 
