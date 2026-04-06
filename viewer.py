@@ -5,6 +5,14 @@ import os
 import sys
 import re
 
+# Attempt to import deep_translator for the new translation feature
+try:
+    from deep_translator import GoogleTranslator
+    TRANSLATION_AVAILABLE = True
+except ImportError:
+    TRANSLATION_AVAILABLE = False
+
+
 def clear_screen():
     """Clears the console screen for better readability."""
     os.system('cls' if os.name == 'nt' else 'clear')
@@ -123,6 +131,18 @@ def main():
         if "t.me/" in channel_name:
             channel_name = channel_name.split('/')[-1]
 
+        # Check for translation preference
+        target_lang = None
+        if TRANSLATION_AVAILABLE:
+            trans_choice = input("Translate messages? (Enter 'en' for English, 'es' for Spanish, or leave blank to skip): ").strip().lower()
+            if trans_choice in ['en', 'english']:
+                target_lang = 'en'
+            elif trans_choice in ['es', 'spanish']:
+                target_lang = 'es'
+        else:
+            print("[!] 'deep_translator' library not found. Skipping translation feature.")
+            print("    (To enable translation, install it via: pip install deep_translator)\n")
+
         save_media_choice = input("Would you like to save images and videos to a folder? (y/n): ").strip().lower()
         save_media = save_media_choice == 'y'
         
@@ -146,6 +166,8 @@ def main():
             
         clear_screen()
         print(f"--- LIVE FEED: @{channel_name} ---")
+        if target_lang:
+            print(f"Translation enabled: Target Language -> {target_lang.upper()}")
         print(f"Polling for new messages every {refresh_rate} seconds. Press Ctrl+C to change channel.\n")
         
         try:
@@ -164,10 +186,21 @@ def main():
                     for msg in new_messages:
                         print(f"[{msg['timestamp']}] 👁 {msg['views']} views")
                         print("-" * 40)
-                        print(f"{msg['text']}")
+                        
+                        display_text = msg['text']
+                        
+                        # Apply translation if requested and the text is not just a media placeholder
+                        if target_lang and display_text and display_text != "[Media / Non-text Content]":
+                            try:
+                                translated = GoogleTranslator(source='auto', target=target_lang).translate(display_text)
+                                display_text = f"{translated}\n\n[Original]:\n{display_text}"
+                            except Exception as e:
+                                display_text = f"[Translation Error: {e}]\n{display_text}"
+                                
+                        print(f"{display_text}")
                         
                         if msg['media_urls']:
-                            print(f"[!] Contains {len(msg['media_urls'])} media file(s).")
+                            print(f"\n[!] Contains {len(msg['media_urls'])} media file(s).")
                             if save_media:
                                 # Sanitize the post ID so it's safe to use as a file name
                                 sanitized_id = msg['id'].replace('/', '_')
