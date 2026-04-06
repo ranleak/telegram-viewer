@@ -1,1 +1,3 @@
 Update stuff for better media embedding. Script now helps to save first frame of videos for the HTML, so we need OpenCV (it doesn't have to be installed, if not the script just skips this step and displays an error message).
+
+New feature to zip media uses my own custom py7zip library, install with pip install git+https://github.com/ranleak/py7zip

@@ -8,6 +8,13 @@ import json
 import base64
 import mimetypes
 
+# Attempt to import custom py7zip for bundling
+try:
+    import py7zip
+    PY7ZIP_AVAILABLE = True
+except ImportError:
+    PY7ZIP_AVAILABLE = False
+
 # Attempt to import cv2 (OpenCV) for extracting video frames
 try:
     import cv2
@@ -156,6 +163,14 @@ def main():
         save_media_choice = input("Would you like to save images and videos to a folder? (y/n): ").strip().lower()
         save_media = save_media_choice == 'y'
         
+        bundle_media = False
+        if save_media:
+            if PY7ZIP_AVAILABLE:
+                bundle_choice = input("Would you like to automatically bundle the media folder into a .7z archive when stopping the feed? (y/n): ").strip().lower()
+                bundle_media = bundle_choice == 'y'
+            else:
+                print("[!] Custom 'py7zip' module not found. Skipping .7z bundling option.")
+
         media_folder = f"media_{channel_name}"
         if save_media:
             os.makedirs(media_folder, exist_ok=True)
@@ -304,6 +319,18 @@ def main():
             # Handle Ctrl+C gracefully to return to the main menu
             clear_screen()
             print("\nStopped live feed.")
+            
+            # Bundle media if requested and there are files to zip
+            if bundle_media and os.path.exists(media_folder) and os.listdir(media_folder):
+                archive_filename = f"{media_folder}.7z"
+                print(f"[*] Bundling media files into '{archive_filename}' using py7zip...")
+                try:
+                    # Passing the folder as a list, matching the py7zip usage example
+                    py7zip.compress(archive_filename, [f"{media_folder}/"])
+                    print(f"[+] Successfully created {archive_filename}")
+                except Exception as e:
+                    print(f"[!] Failed to bundle media: {e}")
+                    
             print("="*50)
             continue
 
